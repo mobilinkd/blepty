@@ -47,18 +47,6 @@ import select
 from time import sleep
 from cStringIO import StringIO
 
-"""
-try:
-    adapter.start()
-    device = adapter.connect('00:0E:0B:03:05:FA', address_type=ADDRESS_TYPE)
-    for uuid in device.discover_characteristics().keys():
-        print("Read UUID %s: %s" % (uuid, binascii.hexlify(device.char_read(uuid))))
-
-    value = device.char_read('0000ffe1-0000-1000-8000-00805f9b34fb', timeout = 0)
-finally:
-    adapter.stop()
-"""
-
 class NotifyTNC(GATTResponse):
     def pty(self, fd):
         self.fd = fd
