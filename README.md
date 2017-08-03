@@ -48,7 +48,7 @@ cannot have capabilities assigned to them.  If they could, then
 would allow this program to run without root privileges.
 
 Another work-around is to use cython to compile the program into a
-standalone executable and the apply the capabilities to that
+standalone executable and the apply then capabilities to that
 executable.
 
     $ cython --embed blepty.py 
