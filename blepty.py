@@ -47,25 +47,54 @@ import select
 from time import sleep
 from cStringIO import StringIO
 
+UART_CHARACTERISTIC = '0000ffe1-0000-1000-8000-00805f9b34fb'
+
 class NotifyTNC(GATTResponse):
+    """
+    Notifications are received here and printed to STDOUT.
+    """
+
     def pty(self, fd):
         self.fd = fd
-        
+
     def on_response(self, data):
-        print("data: {}".format(binascii.hexlify(data)))
-        
-        
+        print("NotifyTNC data: {}".format(binascii.hexlify(data)))
+
 class TNCRequester(GATTRequester):
+    """
+    The requester connected to the specific GATT characteristic.
+    """
+
     def __init__(self, address, fd):
         self.fd = fd
         GATTRequester.__init__(self, address, False)
         self.response = NotifyTNC()
         self.response.pty(fd)
-        self.connect(False, channel_type = 'random')
-        self.read_by_handle_async(0x0012, self.response)
+        self.connect(True)
+
+        self.handle = self.find_characteristic()
+
+        print("Reading from handle {}".format(self.handle))
+
+        self.read_by_handle_async(self.handle, self.response)
+
+    def find_characteristic(self):
+
+        # Find the UART characterstic and store its handle.
+        chars = self.discover_characteristics()
+
+        handle = [x['value_handle'] for x in chars
+            if x['uuid'] == UART_CHARACTERISTIC]
+
+        if len(handle) == 0:
+            raise RuntimeError("UART Characteristic not found.")
+
+        return handle[0]
+
+    def get_handle(self): return self.handle
 
     def on_notification(self, handle, data):
-        print("data[{:2d}]: {}".format(len(data[3:]), binascii.hexlify(data[0:])))
+        print("TNCRequester data[{:2d}]: {}".format(len(data[3:]), binascii.hexlify(data[0:])))
         os.write(self.fd, data[3:])
 
     def __del__(self):
@@ -82,6 +111,10 @@ class Master(object):
         print("Listening on {}".format(os.ttyname(self.slave)))
         os.fchmod(self.slave, 0666)
         self.requester = TNCRequester(address, self.master)
+        self.handle = self.requester.get_handle()
+
+    def run(self):
+
         flag = fcntl.fcntl(self.master, fcntl.F_GETFD)
         fcntl.fcntl(self.master, fcntl.F_SETFD, flag | os.O_NONBLOCK)
         p = select.poll()
@@ -90,17 +123,23 @@ class Master(object):
         while True:
             if pos == 0:
                 block = StringIO()
-                # block.write(str(bytearray([0x12, 0xe1, 0xff])))
-                poll_results = p.poll(None)
+                poll_results = p.poll(10000)
             else:
                 poll_results = p.poll(10)
             
             if len(poll_results) == 0:
+                # Poll timeout
+                if not self.requester.is_connected():
+                    print("Disconnected")
+                    break
+
+                if pos == 0: continue # nothing to send
+
                 for i in range(pos, 23): block.write('\0')
                 print("write[{:2d}]: {}".format(len(block.getvalue()), binascii.hexlify(block.getvalue())))
                 result = [0]
                 while result[0] != '\x19':
-                    result = self.requester.write_by_handle(0x12, block.getvalue())
+                    result = self.requester.write_by_handle(self.handle, block.getvalue())
                     print("result = {}".format(result))
                 pos = 0
             else:
@@ -112,16 +151,12 @@ class Master(object):
                 print("write[{:2d}]: {}".format(len(block.getvalue()), binascii.hexlify(block.getvalue())))
                 result = [0]
                 while result[0] != '\x19':
-                    result = self.requester.write_by_handle(0x12, block.getvalue())
+                    result = self.requester.write_by_handle(self.handle, block.getvalue())
                     print("result = {}".format(result))
                 pos = 0
 
         print("Done.")
         sys.exit(0)
-
-    def write(self, data):
-        for i in range(0, len(data), 20):
-            pass
 
 def parse_args():
     parser = argparse.ArgumentParser(description='BLE UART server.')
@@ -144,7 +179,7 @@ def list():
     for address, name in devices.items():
         print("    name: {}, address: {}".format(name, address))
         req = GATTRequester(address, False)
-        req.connect(True, channel_type = 'random')
+        req.connect(True)
         chars = req.discover_characteristics()
         for char in chars:
             print(char)
@@ -178,3 +213,4 @@ if __name__ == '__main__':
 
     if args.mac is not None:
         master = Master(args.mac)
+        master.run()
