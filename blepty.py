@@ -103,15 +103,23 @@ class TNCRequester(GATTRequester):
 class Master(object):
 
     def __init__(self, address):
+        # Open PTY
         self.master, self.slave = pty.openpty()
+
+        # Start reqeuster
+        self.requester = TNCRequester(address, self.master)
+        self.handle = self.requester.get_handle()
+
+        # Configure slave PTY for Serial port emulation.
         tty.setraw(self.slave)
         attr = termios.tcgetattr(self.slave)
         attr[3] = attr[3] & ~termios.ECHO
         termios.tcsetattr(self.slave, termios.TCSADRAIN, attr)
-        print("Listening on {}".format(os.ttyname(self.slave)))
+        
+        # PTY eeds to be accessible if running as root.
         os.fchmod(self.slave, 0666)
-        self.requester = TNCRequester(address, self.master)
-        self.handle = self.requester.get_handle()
+        
+        print("Listening on {}".format(os.ttyname(self.slave)))
 
     def run(self):
 
