@@ -122,45 +122,55 @@ class Master(object):
         print("Listening on {}".format(os.ttyname(self.slave)))
 
     def run(self):
-
+        """Read from the master endpoint of the PTY.  Use poll() to
+        wait for data.  Data that is received is sent in no more
+        than 20-byte chunks.  If less than 20 bytes are read, the
+        read times out after 10ms and sends the data that has
+        been read."""
+        
+        # Set up the poll object.
         flag = fcntl.fcntl(self.master, fcntl.F_GETFD)
         fcntl.fcntl(self.master, fcntl.F_SETFD, flag | os.O_NONBLOCK)
         p = select.poll()
         p.register(self.master, select.POLLIN)
         pos = 0
+        
         while True:
             if pos == 0:
+                # Create a new buffer and wait for data.  This can
+                # only wait a few seconds in order to check for
+                # BLE disconnection.
                 block = StringIO()
-                poll_results = p.poll(10000)
+                poll_results = p.poll(3000)
             else:
+                # We read less than 20 bytes.  Time out in 10ms to
+                # send a short packet.
                 poll_results = p.poll(10)
             
             if len(poll_results) == 0:
-                # Poll timeout
+                # Poll timeout -- must be a short packet.
                 if not self.requester.is_connected():
                     print("Disconnected")
                     break
 
                 if pos == 0: continue # nothing to send
 
-                for i in range(pos, 23): block.write('\0')
-                print("write[{:2d}]: {}".format(len(block.getvalue()), binascii.hexlify(block.getvalue())))
-                result = [0]
-                while result[0] != '\x19':
-                    result = self.requester.write_by_handle(self.handle, block.getvalue())
-                    print("result = {}".format(result))
+                print("write[{:2d}]: {}".format(len(block.getvalue()),
+                    binascii.hexlify(block.getvalue())))
+                self.requester.write_by_handle_async(self.handle,
+                    str(bytearray(block.getvalue())),
+                    self.requester.response)
                 pos = 0
             else:
+                # Read one byte at a time.  This is to ensure that
+                # we do not block in the read.
                 c = os.read(self.master, 1)
                 block.write(c)
                 pos += len(c)
             
-            if pos == 23:
+            if pos == 20:
                 print("write[{:2d}]: {}".format(len(block.getvalue()), binascii.hexlify(block.getvalue())))
-                result = [0]
-                while result[0] != '\x19':
-                    result = self.requester.write_by_handle(self.handle, block.getvalue())
-                    print("result = {}".format(result))
+                self.requester.write_by_handle_async(self.handle, block.getvalue(), self.requester.response)
                 pos = 0
 
         print("Done.")
