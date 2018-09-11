@@ -47,7 +47,9 @@ import select
 from time import sleep
 from cStringIO import StringIO
 
-UART_CHARACTERISTIC = '0000ffe1-0000-1000-8000-00805f9b34fb'
+BLETNC_SERVICE_UUID = '424a0001-90d6-4c48-b2aa-ab415169c333'
+BLETNC_RX_CHAR_UUID = '424a0002-90d6-4c48-b2aa-ab415169c333'
+BLETNC_TX_CHAR_UUID = '424a0003-90d6-4c48-b2aa-ab415169c333'
 
 class NotifyTNC(GATTResponse):
     """
@@ -70,7 +72,7 @@ class TNCRequester(GATTRequester):
         GATTRequester.__init__(self, address, False)
         self.response = NotifyTNC()
         self.response.pty(fd)
-        self.connect(True)
+        self.connect(True, channel_type = 'random', security_level = 'medium')
 
         self.handle = self.find_characteristic()
 
@@ -84,7 +86,7 @@ class TNCRequester(GATTRequester):
         chars = self.discover_characteristics()
 
         handle = [x['value_handle'] for x in chars
-            if x['uuid'] == UART_CHARACTERISTIC]
+            if x['uuid'] == BLETNC_RX_CHAR_UUID]
 
         if len(handle) == 0:
             raise RuntimeError("UART Characteristic not found.")
@@ -188,7 +190,7 @@ def parse_args():
     return parser.parse_args()
     
 def get_devices():
-    service = DiscoveryService()
+    service = DiscoveryService('hci0')
     return service.discover(2)
 
 def list():
@@ -196,12 +198,15 @@ def list():
     print("Devices")
     for address, name in devices.items():
         print("    name: {}, address: {}".format(name, address))
-        req = GATTRequester(address, False)
-        req.connect(True)
-        chars = req.discover_characteristics()
-        for char in chars:
-            print(char)
-        req.disconnect()
+        try:
+            req = GATTRequester(address, False)
+            req.connect(True, channel_type = 'random', security_level = 'medium')
+            chars = req.discover_characteristics()
+            for char in chars:
+                print(char)
+            req.disconnect()
+        except RuntimeError, ex:
+            print(str(ex))
 
 def get_device(name):
     devices = get_devices()
